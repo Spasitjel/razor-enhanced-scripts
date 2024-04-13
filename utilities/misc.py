@@ -27,35 +27,49 @@ class ItemDirection(Enum):
     Up = 0x07,
 
 def SendSpeech(message, object, type, color, name, font = 3):
-    #BYTE[1] cmd
-    #BYTE[2] Packet len
-    #BYTE[4] itemID (FF FF FF FF = system)
-    #BYTE[2] model (item # - FF FF = system)
-    #BYTE[1] Type of Text
-    #BYTE[2] Text Color
-    #BYTE[2] Font
-    #BYTE[30] Name
-    #BYTE[?] Null-Terminated Msg (? = Packet length - 44)
-
-    if isinstance(object, int):
-        serial = object
-    else:
-        serial = object.Serial
+    # BYTE[1] cmd
+    # BYTE[2] length
+    # BYTE[4] ID
+    # BYTE[2] Model
+    # BYTE[1] Type
+    # BYTE[2] Color
+    # BYTE[2] Font
+    # BYTE[4] Language
+    # BYTE[30] Name
+    # BYTE[?][2] Msg - Null Terminated (blockSize - 48)
 
     if type == SpeechType.System or type == SpeechType.Broadcast:
         graphic = 0xFFFF
         serial = 0xFFFFFF
     else:
-        if serial >= 0x40000000:
-            # it's an actual item
-            graphic = object.ItemID
+        if isinstance(object, int):
+            serial = object
+            if serial >= 0x40000000:
+                item = Items.FindBySerial(serial)
+                if item is None:
+                    return
+                graphic = item.ItemID
+            else:
+                mobile = Mobiles.FindBySerial(serial)
+                if mobile is None:
+                    return
+                graphic = mobile.Body
         else:
-            graphic = object.Body
+            serial = object.Serial
 
-    format = f"!BHIHBHH30s{len(message)}sB"
+            if serial >= 0x40000000:
+                # it's an actual item
+                graphic = object.ItemID
+            else:
+                graphic = object.Body
+
+    encoded_message = message.encode('utf-16-be')
+    message_length = len(encoded_message)
+
+    format = f"!BHIHBHH4s30s{message_length}sH"
     
-    data = list(bytearray(struct.pack(format, 0x1C, 44 + len(message) + 1,
-        serial, graphic, int(type.value[0]), color, font, name.encode('ascii'), message.encode('ascii'), 0)))
+    data = list(bytearray(struct.pack(format, 0xAE, 48 + message_length + 2,
+        serial, graphic, int(type.value[0]), color, font, "ENU\0".encode('ascii'), name.encode('ascii'), encoded_message, 0)))
     
     PacketLogger.SendToClient(data)
 
